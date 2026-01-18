@@ -437,6 +437,57 @@ for i, track in enumerate(st.session_state.tracks):
             if st.button("🗑", key=f"del_{track['id']}", help="Delete"):
                 delete_track(track["id"])
 
+        # Waveform & Playback
+        try:
+            # 1. Playback
+            # We need to export to bytes. For performance, do this on demand?
+            # Streamlit re-runs script, so it might be okay.
+            # To avoid lag, we could cache this? But audio is mutable (trim/fade).
+            # Let's just do it.
+            
+            # Use original audio for preview without effects? Or with effects?
+            # User probably wants to hear effects (volume/fade).
+            # But effects are applied in 'process_track_for_mix'.
+            
+            # Let's show the *processed* preview? Or raw?
+            # Usually individual track preview is raw or with basic volume.
+            # Let's show the raw loaded audio (cut to trim range?) for now, 
+            # or maybe just the full file.
+            # User said "Play button for each track" -> usually implies listening to that source.
+            
+            audio_source = track["audio"]
+            
+            # Create a localized buffer for this track
+            with io.BytesIO() as track_buf:
+                audio_source.export(track_buf, format="wav")
+                st.audio(track_buf.getvalue(), format='audio/wav')
+            
+            # 2. Waveform Visualization
+            # Convert to numpy for display
+            # Pydub samples -> numpy
+            samples = np.array(audio_source.get_array_of_samples())
+            
+            # Handle Stereo (interleaved)
+            if audio_source.channels == 2:
+                # Reshape to (samples, 2)
+                samples = samples.reshape((-1, 2))
+                # Mix down to mono for display or just take left channel
+                samples = samples.mean(axis=1) # Average
+                
+            # Downsample for performance (aim for ~500-1000 points)
+            # If 3min song @ 44.1k = ~8M samples.
+            step = max(1, len(samples) // 1000)
+            view_data = samples[::step]
+            
+            # Normalize for better visual
+            if len(view_data) > 0:
+                view_data = view_data / (np.max(np.abs(view_data)) + 1e-9)
+            
+            st.area_chart(view_data, height=60, use_container_width=True)
+            
+        except Exception as e:
+            st.warning(f"Preview unavailable: {e}")
+
         # Row 2: Volume and Fades
         r2_c1, r2_c2, r2_c3 = st.columns(3)
         with r2_c1:
