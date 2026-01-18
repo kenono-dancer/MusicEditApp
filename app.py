@@ -8,6 +8,7 @@ import os
 import io
 import uuid
 import time
+import pandas as pd
 
 # Page Config
 st.set_page_config(
