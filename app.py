@@ -18,7 +18,7 @@ st.set_page_config(
 import shutil
 import imageio_ffmpeg
 
-APP_VERSION = "2.0.3"
+APP_VERSION = "2.0.4"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -117,44 +117,51 @@ def load_audio_segment(file_bytes, file_name):
         st.error(f"Error creating temp file: {e}")
         return None
 
+import subprocess
+
     # 2. Try Loading
     audio = None
     
-    # Attempt 1: Pydub (Direct FFMPEG)
+    # Attempt 1: Pydub (Direct - depends on system ffmpeg/ffprobe)
     try:
         audio = AudioSegment.from_file(tmp_path)
     except Exception as e_pydub:
         print(f"Pydub load failed: {e_pydub}. Trying Fallback...")
         
-        # Attempt 2: Librosa -> Pydub (Numpy Conversion)
+        # Attempt 2: Manual FFMPEG Conversion (Bypasses ffprobe & Librosa/audioread)
+        # We use our guaranteed 'ffmpeg_path' to transcode to WAV, then load WAV.
         try:
-            # Librosa loads as float32 [-1, 1]
-            y, sr = librosa.load(tmp_path, sr=None, mono=False)
-            
-            # Handle Multi-channel
-            if y.ndim == 1:
-                channels = 1
-                y_int = (y * 32767).astype(np.int16)
-            else:
-                channels = y.shape[0]
-                y = y.T # Pydub expects (samples, channels) flattened? No, raw bytes.
-                # Actually Pydub expects interleaved bytes for stereo
-                # So we flatten Fortran style or resize?
-                # Easiest is to iterate channels if stereo? 
-                # Better: Use simple conversion for Mono/Stereo
-                y_int = (y.T * 32767).astype(np.int16)
+            if not ffmpeg_path:
+                raise Exception("No FFMPEG binary found for fallback.")
                 
-            # Create AudioSegment from raw data
-            audio = AudioSegment(
-                y_int.tobytes(), 
-                frame_rate=sr,
-                sample_width=2, # 16-bit
-                channels=channels
-            )
-            print("Librosa fallback successful.")
+            wav_path = tmp_path + ".wav"
             
-        except Exception as e_librosa:
-            st.error(f"Audio Load Error. Pydub: {e_pydub} | Librosa: {e_librosa}")
+            # Run ffmpeg command: ffmpeg -i input -y output.wav
+            # -y overwrites, -v error (quiet)
+            cmd = [
+                ffmpeg_path, 
+                "-i", tmp_path,
+                "-f", "wav",
+                "-y", 
+                "-v", "error",
+                wav_path
+            ]
+            
+            print(f"Running fallback cmd: {cmd}")
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            # Load the WAV (Pydub handles WAV cleanly without external tools usually)
+            audio = AudioSegment.from_file(wav_path, format="wav")
+            print("Manual FFMPEG fallback successful.")
+            
+            # Cleanup WAV
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+                
+        except Exception as e_convert:
+            st.error(f"Audio Load Error.\n1. Pydub: {e_pydub}\n2. Manual FFMPEG: {e_convert}")
+            # Try Librosa as last ditch (though likely to fail if manual ffmpeg failed)
+            # Leaving it out to keep error clear.
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
             return None
