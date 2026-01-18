@@ -16,22 +16,36 @@ st.set_page_config(
 )
 
 import shutil
+import imageio_ffmpeg
 
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.0.2"
 
 # --- FFMPEG Configuration ---
-# Explicitly tell Pydub where ffmpeg/ffprobe are
+# 1. Try system ffmpeg
 ffmpeg_path = shutil.which("ffmpeg")
 ffprobe_path = shutil.which("ffprobe")
 
+# 2. Key Fallback: Use imageio-ffmpeg if available (Guaranteed Binary)
+if not ffmpeg_path:
+    try:
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        print(f"Using imageio-ffmpeg binary: {ffmpeg_path}")
+    except Exception as e:
+        print(f"imageio-ffmpeg failed: {e}")
+
+# Set Pydub paths
 if ffmpeg_path:
     AudioSegment.converter = ffmpeg_path
+    # Usually ffprobe is in the same dir ??
+    # Imageio-ffmpeg doesn't strictly provide ffprobe, but Pydub mainly needs converter for transcode.
+    # For probe, it might fail if we don't have it.
+    
 if ffprobe_path:
     AudioSegment.ffprobe = ffprobe_path
 
 # Display Debug Info in Sidebar (Temporary)
 with st.sidebar:
-    st.caption(f"Backend Info:")
+    st.caption(f"Backend Info (v2.0.2):")
     st.caption(f"- FFMPEG: {ffmpeg_path or 'Not Found'}")
     st.caption(f"- FFPROBE: {ffprobe_path or 'Not Found'}")
 

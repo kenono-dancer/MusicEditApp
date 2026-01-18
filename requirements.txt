@@ -5,3 +5,4 @@ numpy
 soundfile
 numba>=0.59.0
 packaging
+imageio-ffmpeg
