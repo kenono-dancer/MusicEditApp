@@ -17,8 +17,9 @@ st.set_page_config(
 
 import shutil
 import imageio_ffmpeg
+import subprocess
 
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.0.5"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -117,8 +118,7 @@ def load_audio_segment(file_bytes, file_name):
         st.error(f"Error creating temp file: {e}")
         return None
 
-import subprocess
-
+    
     # 2. Try Loading
     audio = None
     
