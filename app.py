@@ -492,11 +492,11 @@ for i, track in enumerate(st.session_state.tracks):
         # Row 2: Trim Controls (Moved Up)
         max_dur = track["original_duration_sec"]
         if max_dur > 0:
-            # Info Display
-            t_start, t_end = track["trim_start"], track["trim_end"]
-            st.caption(f"⏱️ Start: {t_start:.2f}s | End: {t_end:.2f}s | Duration: {t_end-t_start:.2f}s")
-            
             # Slider
+            c_info, c_slide = st.columns([1, 2])
+            with c_info:
+                 st.caption(f"⏱️ Start: {t_start:.2f}s | End: {t_end:.2f}s | Duration: {t_end-t_start:.2f}s")
+                 
             track["trim_start"], track["trim_end"] = st.slider(
                 "Trim Range (sec)",
                 min_value=0.0,
@@ -505,6 +505,22 @@ for i, track in enumerate(st.session_state.tracks):
                 step=0.01,
                 key=f"trim_{track['id']}"
             )
+            
+            # Preview Button for Trimmed Segment
+            # Calculate range
+            p_start = int(track["trim_start"] * 1000)
+            p_end = int(track["trim_end"] * 1000)
+            
+            if p_end > p_start:
+                 # Slice audio (raw, no effects yet, just trim)
+                 trim_audio = track["audio"][p_start:p_end]
+                 
+                 # Export to bytes
+                 with io.BytesIO() as trim_buf:
+                     trim_audio.export(trim_buf, format="wav")
+                     st.audio(trim_buf.getvalue(), format='audio/wav')
+            
+
 
         # Row 3: Volume and Fades (Moved Down)
         r3_c1, r3_c2, r3_c3 = st.columns(3)
