@@ -492,6 +492,9 @@ for i, track in enumerate(st.session_state.tracks):
         # Row 2: Trim Controls (Moved Up)
         max_dur = track["original_duration_sec"]
         if max_dur > 0:
+            # Info Display
+            t_start, t_end = track["trim_start"], track["trim_end"]
+            
             # Slider
             c_info, c_slide = st.columns([1, 2])
             with c_info:
