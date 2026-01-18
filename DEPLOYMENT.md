@@ -1,5 +1,16 @@
 # Deployment Instructions
 
+> [!IMPORTANT]
+> **CRITICAL: Python Version Setting**
+> This app requires **Python 3.11**.
+> Python 3.13 (often the default now) causes the crash you are seeing because the audio library (`numba`/`librosa`) does not support it yet.
+>
+> **How to fix on Streamlit Cloud:**
+> 1. Go to your App Dashboard (share.streamlit.io).
+> 2. Click the specific app settings (three dots) -> **Settings**.
+> 3. Under **General**, change **Python version** to **3.11**.
+> 4. Save/Reboot the app.
+
 Your code is successfully hosted on GitHub at:
 **[https://github.com/kenono-dancer/MusicEditApp](https://github.com/kenono-dancer/MusicEditApp)**
 
@@ -16,6 +27,7 @@ Streamlit Cloud is the easiest way to host this application.
     - **Repository**: Select `kenono-dancer/MusicEditApp`.
     - **Branch**: `main`.
     - **Main file path**: `app.py`.
+    - **Advanced Settings**: Select **Python 3.11**.
 
 4.  **Deploy**:
     - Click **"Deploy!"**.

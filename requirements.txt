@@ -3,3 +3,5 @@ librosa
 pydub
 numpy
 soundfile
+numba>=0.59.0
+packaging
