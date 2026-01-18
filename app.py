@@ -381,15 +381,13 @@ def render_tempo_controls():
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
         # Toggle Recording
-        # Access session state directly
-        is_rec = st.checkbox("🔴 Record Automation", value=st.session_state.automation_is_recording, key="record_toggle")
+        is_rec = st.checkbox("🔴 Rec Auto", value=st.session_state.automation_is_recording, key="record_toggle", help="Check this, then move slider to record.")
         
         if is_rec != st.session_state.automation_is_recording:
-            # State Changed
             st.session_state.automation_is_recording = is_rec
             if is_rec:
                 st.session_state.automation_start_time = time.time()
-                st.toast("Recording Started!")
+                st.toast("Recording ON! Move slider now.")
             else:
                  st.toast("Recording Stopped.")
 
@@ -399,7 +397,8 @@ def render_tempo_controls():
             st.rerun()
             
     with c3:
-        st.metric("Points", len(st.session_state.automation_data))
+        n_points = len(st.session_state.automation_data)
+        st.metric("Points", n_points)
 
     # Slider Logic
     def on_change_callback():
@@ -409,12 +408,12 @@ def render_tempo_controls():
                  st.session_state.automation_start_time = time.time()
                  
              elapsed = time.time() - st.session_state.automation_start_time
-             # We need to get the NEW value. state is updated before callback.
+             # NEW value from session state
              new_rate = st.session_state.master_tempo
              st.session_state.automation_data.append((elapsed, new_rate))
 
     val = st.slider(
-        "Playback Rate (0.500x - 2.000x)",
+        "Playback Rate (0.5x - 2.0x)",
         min_value=0.500,
         max_value=2.000,
         value=st.session_state.master_tempo,
@@ -424,17 +423,34 @@ def render_tempo_controls():
         on_change=on_change_callback
     )
     
-    # JS Injection to update playbackRate live
-    # We target ALL audio elements.
+    # ROBUST JS Injection
+    # We use setInterval to enforce the rate for a few seconds after any slider move.
+    # We also log to console for debugging.
     js_code = f"""
     <script>
-        // Use a slight timeout to ensure elements are found if React is rendering
-        setTimeout(() => {{
-            const audios = document.querySelectorAll('audio');
-            audios.forEach(a => {{
-                a.playbackRate = {val};
-            }});
-        }}, 50);
+        (function() {{
+            const targetRate = {val};
+            console.log("Setting playbackRate to:", targetRate);
+            
+            function enforceRate() {{
+                const audios = document.querySelectorAll('audio');
+                audios.forEach(a => {{
+                    if (a.playbackRate !== targetRate) {{
+                        a.playbackRate = targetRate;
+                        // console.log("Updated rate for:", a);
+                    }}
+                }});
+            }}
+            
+            // Run immediately
+            enforceRate();
+            
+            // And multiple times to catch elements if they are mounting
+            const interval = setInterval(enforceRate, 100);
+            
+            // Stop checks after 2 seconds to save resources (slider move will re-trigger this script)
+            setTimeout(() => clearInterval(interval), 2000);
+        }})();
     </script>
     """
     st.markdown(js_code, unsafe_allow_html=True)
