@@ -18,7 +18,7 @@ st.set_page_config(
 import shutil
 import imageio_ffmpeg
 
-APP_VERSION = "2.0.2"
+APP_VERSION = "2.0.3"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -28,16 +28,31 @@ ffprobe_path = shutil.which("ffprobe")
 # 2. Key Fallback: Use imageio-ffmpeg if available (Guaranteed Binary)
 if not ffmpeg_path:
     try:
-        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-        print(f"Using imageio-ffmpeg binary: {ffmpeg_path}")
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        print(f"Using imageio-ffmpeg binary: {ffmpeg_exe}")
         
-        # CRITICAL: Add this directory to PATH so 'audioread' (Librosa) can find 'ffmpeg' command
-        # This enables the fallback to work even if Pydub fails due to missing ffprobe
-        ffmpeg_dir = os.path.dirname(ffmpeg_path)
-        os.environ["PATH"] += os.pathsep + ffmpeg_dir
+        # CRITICAL: Create an alias named 'ffmpeg' because 'audioread' looks for that specific command
+        # We create a local 'bin' folder and copy the binary there.
+        work_dir = os.getcwd()
+        bin_dir = os.path.join(work_dir, "bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        
+        target_ffmpeg = os.path.join(bin_dir, "ffmpeg")
+        
+        if not os.path.exists(target_ffmpeg):
+            shutil.copy(ffmpeg_exe, target_ffmpeg)
+            # Make sure it's executable
+            st = os.stat(target_ffmpeg)
+            os.chmod(target_ffmpeg, st.st_mode | 0o111)
+            
+        # Add this bin dir to PATH
+        os.environ["PATH"] += os.pathsep + bin_dir
+        
+        # Update paths for valid checks
+        ffmpeg_path = target_ffmpeg
         
     except Exception as e:
-        print(f"imageio-ffmpeg failed: {e}")
+        print(f"imageio-ffmpeg setup failed: {e}")
 
 # Set Pydub paths
 if ffmpeg_path:
