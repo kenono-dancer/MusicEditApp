@@ -488,22 +488,15 @@ for i, track in enumerate(st.session_state.tracks):
         except Exception as e:
             st.warning(f"Preview unavailable: {e}")
 
-        # Row 2: Volume and Fades
-        r2_c1, r2_c2, r2_c3 = st.columns(3)
-        with r2_c1:
-            track["volume"] = st.slider("Volume (dB)", -20.0, 10.0, float(track["volume"]), step=0.5, key=f"vol_{track['id']}")
-        with r2_c2:
-            track["fade_in"] = st.number_input("Fade In (ms)", 0, 5000, int(track["fade_in"]), step=100, key=f"fi_{track['id']}")
-        with r2_c3:
-            track["fade_out"] = st.number_input("Fade Out (ms)", 0, 5000, int(track["fade_out"]), step=100, key=f"fo_{track['id']}")
-
-        # Row 3: Trimming
-        # Slider range must be within [0, original_duration]
-        # value is a tuple (start, end)
-        max_dur = track["original_duration_sec"]
         
-        # Guard against zero-length or edge cases
+        # Row 2: Trim Controls (Moved Up)
+        max_dur = track["original_duration_sec"]
         if max_dur > 0:
+            # Info Display
+            t_start, t_end = track["trim_start"], track["trim_end"]
+            st.caption(f"⏱️ Start: {t_start:.2f}s | End: {t_end:.2f}s | Duration: {t_end-t_start:.2f}s")
+            
+            # Slider
             track["trim_start"], track["trim_end"] = st.slider(
                 "Trim Range (sec)",
                 min_value=0.0,
@@ -512,6 +505,16 @@ for i, track in enumerate(st.session_state.tracks):
                 step=0.01,
                 key=f"trim_{track['id']}"
             )
+
+        # Row 3: Volume and Fades (Moved Down)
+        r3_c1, r3_c2, r3_c3 = st.columns(3)
+        with r3_c1:
+            track["volume"] = st.slider("Volume (dB)", -20.0, 10.0, float(track["volume"]), step=0.5, key=f"vol_{track['id']}")
+        with r3_c2:
+            track["fade_in"] = st.number_input("Fade In (ms)", 0, 5000, int(track["fade_in"]), step=100, key=f"fi_{track['id']}")
+        with r3_c3:
+            track["fade_out"] = st.number_input("Fade Out (ms)", 0, 5000, int(track["fade_out"]), step=100, key=f"fo_{track['id']}")
+
         
         st.markdown("---")
 
