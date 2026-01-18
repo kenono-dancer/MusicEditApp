@@ -437,91 +437,76 @@ for i, track in enumerate(st.session_state.tracks):
             if st.button("🗑", key=f"del_{track['id']}", help="Delete"):
                 delete_track(track["id"])
 
-        # Waveform & Playback
+        # Waveform & Control Unit
         try:
-            # 1. Playback
-            # We need to export to bytes. For performance, do this on demand?
-            # Streamlit re-runs script, so it might be okay.
-            # To avoid lag, we could cache this? But audio is mutable (trim/fade).
-            # Let's just do it.
-            
-            # Use original audio for preview without effects? Or with effects?
-            # User probably wants to hear effects (volume/fade).
-            # But effects are applied in 'process_track_for_mix'.
-            
-            # Let's show the *processed* preview? Or raw?
-            # Usually individual track preview is raw or with basic volume.
-            # Let's show the raw loaded audio (cut to trim range?) for now, 
-            # or maybe just the full file.
-            # User said "Play button for each track" -> usually implies listening to that source.
-            
+            # Prepare Audio source (Original for waveform, Trimmed for playback)
             audio_source = track["audio"]
             
-            # Create a localized buffer for this track
-            with io.BytesIO() as track_buf:
-                audio_source.export(track_buf, format="wav")
-                st.audio(track_buf.getvalue(), format='audio/wav')
-            
-            # 2. Waveform Visualization
+            # --- 1. Waveform (Top) ---
             # Convert to numpy for display
-            # Pydub samples -> numpy
             samples = np.array(audio_source.get_array_of_samples())
             
-            # Handle Stereo (interleaved)
+            # Handle Stereo
             if audio_source.channels == 2:
-                # Reshape to (samples, 2)
                 samples = samples.reshape((-1, 2))
-                # Mix down to mono for display or just take left channel
-                samples = samples.mean(axis=1) # Average
+                samples = samples.mean(axis=1)
                 
-            # Downsample for performance (aim for ~500-1000 points)
-            # If 3min song @ 44.1k = ~8M samples.
+            # Downsample
             step = max(1, len(samples) // 1000)
             view_data = samples[::step]
             
-            # Normalize for better visual
+            # Normalize
             if len(view_data) > 0:
                 view_data = view_data / (np.max(np.abs(view_data)) + 1e-9)
             
-            st.area_chart(view_data, height=60, use_container_width=True)
-            
-        except Exception as e:
-            st.warning(f"Preview unavailable: {e}")
+            st.area_chart(view_data, height=40, use_container_width=True)
 
-        
-        # Row 2: Trim Controls (Moved Up)
-        max_dur = track["original_duration_sec"]
-        if max_dur > 0:
-            # Info Display
+
+            # --- 2. Unified Controls (Player + Slider) ---
+            # Layout: [Play Button (Small)] [Trim Slider (Large)]
+            c_play, c_slide = st.columns([1, 4])
+            
+            # Prepare Trimmed Audio State
+            max_dur = track["original_duration_sec"]
             t_start, t_end = track["trim_start"], track["trim_end"]
             
-            # Slider
-            c_info, c_slide = st.columns([1, 2])
-            with c_info:
-                 st.caption(f"⏱️ Start: {t_start:.2f}s | End: {t_end:.2f}s | Duration: {t_end-t_start:.2f}s")
-                 
-            track["trim_start"], track["trim_end"] = st.slider(
-                "Trim Range (sec)",
-                min_value=0.0,
-                max_value=max_dur,
-                value=(float(track["trim_start"]), float(track["trim_end"])),
-                step=0.01,
-                key=f"trim_{track['id']}"
-            )
+            # Calculate Trimmed Segment for Player
+            p_start = int(t_start * 1000)
+            p_end = int(t_end * 1000)
             
-            # Preview Button for Trimmed Segment
-            # Calculate range
-            p_start = int(track["trim_start"] * 1000)
-            p_end = int(track["trim_end"] * 1000)
+            # Guard against invalid ranges for audio slice
+            if p_end <= p_start: 
+                p_end = p_start + 1 # minimal length
+            if p_end > len(audio_source):
+                p_end = len(audio_source)
+                
+            trim_audio = audio_source[p_start:p_end]
+
+            with c_play:
+                # Player for the CURRENT trim selection
+                with io.BytesIO() as trim_buf:
+                    trim_audio.export(trim_buf, format="wav")
+                    # We use a unique label/key logic if needed, but st.audio usually updates if data changes.
+                    # Label is empty to save space
+                    st.audio(trim_buf.getvalue(), format='audio/wav')
             
-            if p_end > p_start:
-                 # Slice audio (raw, no effects yet, just trim)
-                 trim_audio = track["audio"][p_start:p_end]
-                 
-                 # Export to bytes
-                 with io.BytesIO() as trim_buf:
-                     trim_audio.export(trim_buf, format="wav")
-                     st.audio(trim_buf.getvalue(), format='audio/wav')
+            with c_slide:
+                # Slider Controls
+                # Display Times
+                st.caption(f"✂️ Trim: {t_start:.2f}s - {t_end:.2f}s (Dur: {t_end-t_start:.2f}s)")
+                
+                track["trim_start"], track["trim_end"] = st.slider(
+                    "Trim Range",
+                    min_value=0.0,
+                    max_value=max_dur,
+                    value=(float(t_start), float(t_end)),
+                    step=0.01,
+                    label_visibility="collapsed", # Hide label to merge visually
+                    key=f"trim_{track['id']}"
+                )
+
+        except Exception as e:
+            st.warning(f"Visualization error: {e}")
             
 
 
