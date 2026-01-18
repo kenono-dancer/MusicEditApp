@@ -36,6 +36,14 @@ if 'master_tempo' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
+# Automation State
+if 'automation_is_recording' not in st.session_state:
+    st.session_state.automation_is_recording = False
+if 'automation_data' not in st.session_state:
+    st.session_state.automation_data = [] # List of (timestamp, rate)
+if 'automation_start_time' not in st.session_state:
+    st.session_state.automation_start_time = None
+
 # --- Helper Functions ---
 
 def load_audio_segment(file_bytes, file_name):
@@ -142,21 +150,19 @@ def process_track_for_mix(track):
         print(f"Error processing track {track['name']}: {e}")
         return None
 
-def generate_mix():
+def generate_dynamic_mix():
     """
-    Mix all tracks and apply master tempo.
+    Mix tracks and apply Dynamic Tempo based on automation_data.
     """
     if not st.session_state.tracks:
         return None, None
 
-    # Mix tracks using Pydub
+    # 1. Mix tracks (Base Mix)
     mixed_audio = None
-    
     for track in st.session_state.tracks:
         segment = process_track_for_mix(track)
         if segment is None:
             continue
-            
         if mixed_audio is None:
             mixed_audio = segment
         else:
@@ -165,22 +171,90 @@ def generate_mix():
     if mixed_audio is None:
         return None, None
 
-    # Export to bytes for Librosa loading
+    # Export to bytes for Librosa
     with io.BytesIO() as buf:
         mixed_audio.export(buf, format="wav")
         buf.seek(0)
-        
-        # Load into Librosa
         y, sr = librosa.load(buf, sr=44100)
 
-    # Master Tempo processing
-    rate = st.session_state.master_tempo
-    if rate != 1.0:
-        y_final = librosa.effects.time_stretch(y, rate=rate)
-    else:
-        y_final = y
+    # 2. Apply Tempo
+    # If Automation Data exists, use Variable Rate
+    if st.session_state.automation_data:
+        points = sorted(st.session_state.automation_data, key=lambda x: x[0])
         
+        # Make sure we cover the start
+        if not points or points[0][0] > 0:
+             # Default to current slider value or 1.0 for the start
+             initial_rate = 1.0 
+             points.insert(0, (0.0, initial_rate))
+             
+        outputs = []
+        total_samples = len(y)
+        
+        for i in range(len(points)):
+            t_start, rate = points[i]
+            
+            # Determine end time for this segment
+            if i + 1 < len(points):
+                t_end = points[i+1][0]
+            else:
+                t_end = len(y) / sr # End of file
+                
+            start_sample = int(t_start * sr)
+            end_sample = int(t_end * sr)
+            
+            # Safety bounds
+            start_sample = max(0, min(start_sample, total_samples))
+            end_sample = max(0, min(end_sample, total_samples))
+            
+            if start_sample >= end_sample:
+                continue
+                
+            chunk = y[start_sample:end_sample]
+            
+            # Time Stretch
+            # Note: Librosa time_stretch is quality but slow for many small chunks
+            if rate != 1.0:
+                # Speed up or slow down
+                chunk_stretched = librosa.effects.time_stretch(chunk, rate=rate)
+            else:
+                chunk_stretched = chunk
+                
+            outputs.append(chunk_stretched)
+            
+        if outputs:
+            y_final = np.concatenate(outputs)
+        else:
+            y_final = y
+
+    # Else use Constant Master Tempo
+    else:
+        rate = st.session_state.master_tempo
+        if rate != 1.0:
+            y_final = librosa.effects.time_stretch(y, rate=rate)
+        else:
+            y_final = y
+            
     return y_final, sr
+
+def on_tempo_slider_change():
+    """Callback for slider movement."""
+    if st.session_state.automation_is_recording:
+        # Check if we have a start time, if not (first move), set it?
+        # Actually start time should be set when 'Record' is toggled ON? 
+        # No, usually regular playback starts THEN we record?
+        # Let's assume 'automation_start_time' was set when user clicked 'Start Recording' 
+        # OR we use the current time relative to when recording was ENABLED.
+        
+        if st.session_state.automation_start_time is None:
+             st.session_state.automation_start_time = time.time()
+             
+        elapsed = time.time() - st.session_state.automation_start_time
+        new_rate = st.session_state.master_tempo
+        
+        # Append point
+        st.session_state.automation_data.append((elapsed, new_rate))
+
 
 # --- Sidebar / Header Controls ---
 with st.container():
@@ -196,14 +270,45 @@ with st.container():
     
     with col_tempo:
         st.subheader("Master Tempo")
+        
+        # automation controls
+        c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
+        with c1:
+            # Toggle Recording
+            if st.checkbox("🔴 Record Automation", value=st.session_state.automation_is_recording, key="record_toggle"):
+                if not st.session_state.automation_is_recording:
+                    # Just started recording
+                    st.session_state.automation_is_recording = True
+                    st.session_state.automation_start_time = time.time()
+                    st.toast("Recording Started! Move slider to capture points.")
+            else:
+                if st.session_state.automation_is_recording:
+                    # Just stopped
+                    st.session_state.automation_is_recording = False
+                    st.toast("Recording Stopped.")
+        
+        with c2:
+            if st.button("Clear Data"):
+                st.session_state.automation_data = []
+                st.rerun()
+                
+        with c3:
+            st.metric("Points", len(st.session_state.automation_data))
+
+        # Slider with Callback
         st.session_state.master_tempo = st.slider(
             "Playback Rate (0.500x - 2.000x)",
             min_value=0.500,
             max_value=2.000,
             value=st.session_state.master_tempo,
             step=0.001,
-            format="%.3f"
+            format="%.3f",
+            on_change=on_tempo_slider_change
         )
+        # Note regarding 'on_change': Streamlit usually triggers this on release.
+        # For real-time recording, users must release mouse or use keyboard for updates?
+        # Actually slider *does* trigger on drag release. Continuous updates might require a custom component,
+        # but this is "standard" Streamlit behavior.
 
 st.markdown("---")
 
@@ -265,7 +370,8 @@ if st.button("Generate Mix & Preview", type="primary"):
     else:
         with st.spinner("Mixing and Processing..."):
             try:
-                y_final, sr = generate_mix()
+                # Use dynamic mix function
+                y_final, sr = generate_dynamic_mix()
                 
                 if y_final is not None:
                     # Convert to WAV for playback
@@ -276,8 +382,22 @@ if st.button("Generate Mix & Preview", type="primary"):
                     st.success("Mix Generated Successfully!")
                     st.audio(buffer, format='audio/wav')
                     
+                    # Duration & Info
                     duration = librosa.get_duration(y=y_final, sr=sr)
-                    st.info(f"Total Duration: {duration:.2f} s | Master Tempo: {st.session_state.master_tempo}x")
+                    info_text = f"Total Duration: {duration:.2f} s"
+                    if st.session_state.automation_data:
+                        info_text += f" | Automation Points: {len(st.session_state.automation_data)}"
+                    else:
+                        info_text += f" | Static Tempo: {st.session_state.master_tempo}x"
+                    st.info(info_text)
+
+                    # Export Button (High Quality Download)
+                    st.download_button(
+                        label="⬇️ Download High-Quality WAV",
+                        data=buffer,
+                        file_name="remix_master.wav",
+                        mime="audio/wav"
+                    )
             
             except Exception as e:
                 st.error(f"Error generating mix: {e}")
