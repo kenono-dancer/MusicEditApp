@@ -30,6 +30,12 @@ if not ffmpeg_path:
     try:
         ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
         print(f"Using imageio-ffmpeg binary: {ffmpeg_path}")
+        
+        # CRITICAL: Add this directory to PATH so 'audioread' (Librosa) can find 'ffmpeg' command
+        # This enables the fallback to work even if Pydub fails due to missing ffprobe
+        ffmpeg_dir = os.path.dirname(ffmpeg_path)
+        os.environ["PATH"] += os.pathsep + ffmpeg_dir
+        
     except Exception as e:
         print(f"imageio-ffmpeg failed: {e}")
 
