@@ -437,54 +437,69 @@ for i, track in enumerate(st.session_state.tracks):
             if st.button("🗑", key=f"del_{track['id']}", help="Delete"):
                 delete_track(track["id"])
 
-        # Waveform & Playback
+        # Layout Containers: Define visual order
+        # We want Visual: [Waveform] -> [Player] -> [Controls (Slider)]
+        # But Logic: [Slider (Update State)] -> [Player (Use State)]
+        
+        # 1. Define placeholders for visual sections
+        c_waveform = st.container()
+        c_player = st.container()
+        c_controls = st.container()
+        
+        # 2. Logic Execution Order
+        
+        # --- A. Slider (Bottom) ---
+        # Execute this FIRST so 'track' variables are updated before we render the player
+        with c_controls:
+            max_dur = track["original_duration_sec"]
+            if max_dur > 0:
+                t_start, t_end = track["trim_start"], track["trim_end"]
+                
+                # Render Slider
+                new_range = st.slider(
+                    "Trim Range",
+                    min_value=0.0,
+                    max_value=max_dur,
+                    value=(float(t_start), float(t_end)),
+                    step=0.01,
+                    label_visibility="collapsed",
+                    key=f"trim_{track['id']}"
+                )
+                
+                # Update State immediately
+                track["trim_start"], track["trim_end"] = new_range
+                
+                # Show Trim Info
+                st.caption(f"✂️ Trim: {new_range[0]:.2f}s - {new_range[1]:.2f}s (Dur: {new_range[1]-new_range[0]:.2f}s)")
+
+        # --- B. Waveform & Player (Top) ---
         try:
             audio_source = track["audio"]
             
-            # 1. Waveform Visualization
-            samples = np.array(audio_source.get_array_of_samples())
-            if audio_source.channels == 2:
-                samples = samples.reshape((-1, 2))
-                samples = samples.mean(axis=1)
+            # Waveform (in c_waveform)
+            with c_waveform:
+                samples = np.array(audio_source.get_array_of_samples())
+                if audio_source.channels == 2:
+                    samples = samples.reshape((-1, 2))
+                    samples = samples.mean(axis=1)
                 
-            step = max(1, len(samples) // 1000)
-            view_data = samples[::step]
-            if len(view_data) > 0:
-                view_data = view_data / (np.max(np.abs(view_data)) + 1e-9)
-            
-            st.area_chart(view_data, height=40, use_container_width=True)
+                step = max(1, len(samples) // 1000)
+                view_data = samples[::step]
+                if len(view_data) > 0:
+                    view_data = view_data / (np.max(np.abs(view_data)) + 1e-9)
+                
+                # Display waveform
+                st.area_chart(view_data, height=40, use_container_width=True)
 
-            # 2. Main Player (Revived)
-            # We assume this is the "Original" playback bar user asked for.
-            # We can try to set start_time to trim_start for convenience, 
-            # but user might want to hear everything.
-            with io.BytesIO() as track_buf:
-                audio_source.export(track_buf, format="wav")
-                # Using start_time=trim_start helps check the cut start point
-                st.audio(track_buf.getvalue(), format='audio/wav', start_time=int(track["trim_start"]))
-
+            # Player (in c_player)
+            with c_player:
+                with io.BytesIO() as track_buf:
+                    audio_source.export(track_buf, format="wav")
+                    # NOW we use the UPDATED track["trim_start"] from the slider above
+                    st.audio(track_buf.getvalue(), format='audio/wav', start_time=int(track["trim_start"]))
+                    
         except Exception as e:
-            st.warning(f"Visualization error: {e}")
-
-        # Row 2: Trim Controls (Stacked directly below Player)
-        max_dur = track["original_duration_sec"]
-        if max_dur > 0:
-            # Display Trim range numerically
-            t_start, t_end = track["trim_start"], track["trim_end"]
-            st.caption(f"✂️ Trim Range: {t_start:.2f}s - {t_end:.2f}s (Duration: {t_end-t_start:.2f}s)")
-            
-            # The Trim Slider
-            # "Show playback position on Trim Bar" -> We can't strictly do this, 
-            # but stacking it below the player's progress bar is the closest visual match.
-            track["trim_start"], track["trim_end"] = st.slider(
-                "Trim Range",
-                min_value=0.0,
-                max_value=max_dur,
-                value=(float(t_start), float(t_end)),
-                step=0.01,
-                label_visibility="collapsed",
-                key=f"trim_{track['id']}"
-            )
+             st.warning(f"Visualization error: {e}")
             
 
 
