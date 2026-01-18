@@ -19,6 +19,13 @@ APP_VERSION = "2.0.0"
 
 st.title(f"Music Tempo Editor (v{APP_VERSION})")
 
+# --- Emergency Reset ---
+with st.sidebar:
+    if st.button("⚠️ Hard Reset App", type="primary", help="Click this if the app crashes or becomes unresponsive. It will clear all data."):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
 # --- Session State Management ---
 if 'tracks' not in st.session_state:
     st.session_state.tracks = []
