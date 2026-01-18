@@ -49,6 +49,10 @@ if uploaded_file is not None:
             col1.metric("Sample Rate", f"{sr} Hz")
             col2.metric("Duration", f"{duration:.2f} s")
 
+            # UI: Original Audio Preview
+            st.subheader("Original Audio")
+            st.audio(temp_path)
+
             # 3. UI: Tempo Slider
             # Range: 0.500 to 2.000, Step: 0.001
             st.subheader("Tempo Adjustment")
@@ -84,6 +88,7 @@ if uploaded_file is not None:
                     st.success("Processing Complete!")
                     
                     # 6. UI: Audio Preview
+                    st.subheader("Processed Audio")
                     st.audio(buffer, format='audio/wav')
                     
                     # Optional: Info about processed audio
