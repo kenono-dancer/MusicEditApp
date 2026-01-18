@@ -9,6 +9,13 @@ import io
 import uuid
 import time
 import pandas as pd
+try:
+    from streamlit import fragment
+except ImportError:
+    try:
+        from streamlit import experimental_fragment as fragment
+    except ImportError:
+        fragment = lambda x: x # Fallback (no isolation)
 
 # Page Config
 st.set_page_config(
@@ -364,6 +371,75 @@ def on_tempo_slider_change():
 
 
 # --- Sidebar / Header Controls ---
+
+# Fragment for Tempo Controls (Isolated Rerun)
+@fragment
+def render_tempo_controls():
+    st.subheader("Master Tempo")
+    
+    # automation controls
+    c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
+    with c1:
+        # Toggle Recording
+        # Access session state directly
+        is_rec = st.checkbox("🔴 Record Automation", value=st.session_state.automation_is_recording, key="record_toggle")
+        
+        if is_rec != st.session_state.automation_is_recording:
+            # State Changed
+            st.session_state.automation_is_recording = is_rec
+            if is_rec:
+                st.session_state.automation_start_time = time.time()
+                st.toast("Recording Started!")
+            else:
+                 st.toast("Recording Stopped.")
+
+    with c2:
+        if st.button("Clear Data"):
+            st.session_state.automation_data = []
+            st.rerun()
+            
+    with c3:
+        st.metric("Points", len(st.session_state.automation_data))
+
+    # Slider Logic
+    def on_change_callback():
+        # Record data point if recording
+        if st.session_state.automation_is_recording:
+             if st.session_state.automation_start_time is None:
+                 st.session_state.automation_start_time = time.time()
+                 
+             elapsed = time.time() - st.session_state.automation_start_time
+             # We need to get the NEW value. state is updated before callback.
+             new_rate = st.session_state.master_tempo
+             st.session_state.automation_data.append((elapsed, new_rate))
+
+    val = st.slider(
+        "Playback Rate (0.500x - 2.000x)",
+        min_value=0.500,
+        max_value=2.000,
+        value=st.session_state.master_tempo,
+        step=0.001,
+        format="%.3f",
+        key="master_tempo",
+        on_change=on_change_callback
+    )
+    
+    # JS Injection to update playbackRate live
+    # We target ALL audio elements.
+    js_code = f"""
+    <script>
+        // Use a slight timeout to ensure elements are found if React is rendering
+        setTimeout(() => {{
+            const audios = document.querySelectorAll('audio');
+            audios.forEach(a => {{
+                a.playbackRate = {val};
+            }});
+        }}, 50);
+    </script>
+    """
+    st.markdown(js_code, unsafe_allow_html=True)
+
+
 with st.container():
     col_up, col_tempo = st.columns([1, 1])
     
@@ -376,46 +452,7 @@ with st.container():
             add_track_and_reset(uploaded_file)
     
     with col_tempo:
-        st.subheader("Master Tempo")
-        
-        # automation controls
-        c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
-        with c1:
-            # Toggle Recording
-            if st.checkbox("🔴 Record Automation", value=st.session_state.automation_is_recording, key="record_toggle"):
-                if not st.session_state.automation_is_recording:
-                    # Just started recording
-                    st.session_state.automation_is_recording = True
-                    st.session_state.automation_start_time = time.time()
-                    st.toast("Recording Started! Move slider to capture points.")
-            else:
-                if st.session_state.automation_is_recording:
-                    # Just stopped
-                    st.session_state.automation_is_recording = False
-                    st.toast("Recording Stopped.")
-        
-        with c2:
-            if st.button("Clear Data"):
-                st.session_state.automation_data = []
-                st.rerun()
-                
-        with c3:
-            st.metric("Points", len(st.session_state.automation_data))
-
-        # Slider with Callback
-        st.session_state.master_tempo = st.slider(
-            "Playback Rate (0.500x - 2.000x)",
-            min_value=0.500,
-            max_value=2.000,
-            value=st.session_state.master_tempo,
-            step=0.001,
-            format="%.3f",
-            on_change=on_tempo_slider_change
-        )
-        # Note regarding 'on_change': Streamlit usually triggers this on release.
-        # For real-time recording, users must release mouse or use keyboard for updates?
-        # Actually slider *does* trigger on drag release. Continuous updates might require a custom component,
-        # but this is "standard" Streamlit behavior.
+        render_tempo_controls()
 
 st.markdown("---")
 
