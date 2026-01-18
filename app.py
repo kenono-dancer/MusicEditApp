@@ -190,7 +190,6 @@ def add_track_and_reset(uploaded_file):
                 "fade_out": 0, # ms
                 "trim_start": 0.0, # sec
                 "trim_end": len(audio) / 1000.0, # sec
-                "start_offset": 0.0 # sec (Global Timeline Position)
             }
             st.session_state.tracks.append(track)
             st.success(f"Added track: {track['name']}")
@@ -270,29 +269,11 @@ def generate_dynamic_mix():
         segment = process_track_for_mix(track)
         if segment is None:
             continue
-            
-        # Get Position in ms
-        # Default is 0.0 if key missing (backward compatibility)
-        pos_ms = int(track.get("start_offset", 0.0) * 1000)
-        
+
         if mixed_audio is None:
-             # Base audio needs to handle the offset if the FIRST track has an offset
-             # But overlaying on None isn't how pydub works effectively if we want strict time.
-             # We should probably start with a silent base or handle the first one.
-             # Easiest: Create a silent segment of duration = pos_ms + len(segment) OR just use the segment if pos=0.
-             # Actually, if we want true multi-track, we might need a canvas.
-             # But let's assume Track 1 is "Base" for now, or just overlay on the first non-None.
-             # Updated strategy: Mixed audio expands as needed.
-             
-             if pos_ms > 0:
-                 # Create silence up to pos_ms
-                 current_len = pos_ms + len(segment)
-                 mixed_audio = AudioSegment.silent(duration=current_len, frame_rate=44100)
-                 mixed_audio = mixed_audio.overlay(segment, position=pos_ms)
-             else:
-                 mixed_audio = segment
+            mixed_audio = segment
         else:
-            mixed_audio = mixed_audio.overlay(segment, position=pos_ms)
+            mixed_audio = mixed_audio.overlay(segment)
             
     if mixed_audio is None:
         return None, None
@@ -439,62 +420,7 @@ with st.container():
 st.markdown("---")
 
 # --- Track List UI ---
-st.subheader("Tracks & Timeline")
-
-# Master Timeline Visualization
-if st.session_state.tracks:
-    st.markdown("##### 📍 Master Timeline View")
-    try:
-        # Construct a shared time axis
-        # 1. Determine Max Duration
-        max_end_time = 0
-        for t in st.session_state.tracks:
-            # Duration of the CUT segment
-            dur = t["trim_end"] - t["trim_start"]
-            offset = t.get("start_offset", 0.0)
-            end = offset + dur
-            if end > max_end_time:
-                max_end_time = end
-        
-        # If we have content
-        if max_end_time > 0:
-            # Create Time Axis (approx 500 points)
-            points = 500
-            timeline_x = np.linspace(0, max_end_time, points)
-            
-            # Create DataFrame
-            chart_data = {"Time": timeline_x}
-            
-            for t in st.session_state.tracks:
-                # Map this track's presence onto the timeline
-                # We can't easily resample real audio here quickly for all.
-                # Just show "Presence" (1.0) or maybe the track's waveform stretched?
-                # Stretched waveform is too heavy. 
-                # Let's show a "Box" block representation using st.bar_chart or area_chart.
-                
-                # Let's just create a synthetic array for this track
-                # 0 where inactive, 1 (or track index + 1 for color) where active.
-                
-                dur = t["trim_end"] - t["trim_start"]
-                offset = t.get("start_offset", 0.0)
-                
-                track_series = []
-                for x in timeline_x:
-                    if offset <= x <= (offset + dur):
-                        track_series.append(1) # Simple block
-                    else:
-                        track_series.append(0)
-                
-                chart_data[t["name"]] = track_series
-                
-            df_timeline = pd.DataFrame(chart_data)
-            st.area_chart(df_timeline, x="Time", height=150, use_container_width=True)
-            
-    except Exception as e:
-        st.warning(f"Timeline viz error: {e}")
-
-st.markdown("---")
-
+st.subheader("Tracks")
 
 if not st.session_state.tracks:
     st.info("No tracks added yet. Upload an audio file to start.")
@@ -515,16 +441,6 @@ for i, track in enumerate(st.session_state.tracks):
             if st.button("🗑", key=f"del_{track['id']}", help="Delete"):
                 delete_track(track["id"])
         
-        # Row 1.5: Timeline Position (Offset)
-        # We add this here so user can sequence them.
-        track["start_offset"] = st.number_input(
-            "⏳ Start Time on Master (sec)", 
-            min_value=0.0, 
-            value=float(track.get("start_offset", 0.0)),
-            step=0.1,
-            key=f"offset_{track['id']}"
-        )
-
         # Layout Containers: Define visual order
         # We want Visual: [Waveform] -> [Player] -> [Controls (Slider)]
         # But Logic: [Slider (Update State)] -> [Player (Use State)]
