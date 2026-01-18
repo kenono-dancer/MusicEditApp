@@ -6,13 +6,17 @@ import tempfile
 import os
 import io
 
+import time
+
 # Page Config
 st.set_page_config(
     page_title="Music Tempo Editor",
     layout="wide"
 )
 
-st.title("Music Tempo Editor (Phase 1)")
+APP_VERSION = "1.1.0"
+
+st.title(f"Music Tempo Editor (v{APP_VERSION})")
 
 def save_uploaded_file(uploaded_file):
     """
@@ -101,3 +105,48 @@ if uploaded_file is not None:
             # Cleanup temp file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+# Footer Implementation
+st.markdown(
+    """
+    <style>
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: #f8f9fa;
+        color: #333;
+        text-align: center;
+        padding: 10px;
+        font-size: 14px;
+        border-top: 1px solid #e9ecef;
+        z-index: 9999;
+    }
+    .footer a {
+        color: #0068c9;
+        text-decoration: none;
+        font-weight: bold;
+    }
+    .footer a:hover {
+        text-decoration: underline;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# Cache-busting URL
+reload_url = f"/?v={int(time.time())}"
+
+st.markdown(
+    f"""
+    <div class="footer">
+        Music Edit App v{APP_VERSION} | 
+        <a href="{reload_url}" target="_self" title="Click to update/reload app">
+            Update / Reload
+        </a>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
