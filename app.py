@@ -15,7 +15,25 @@ st.set_page_config(
     layout="wide"
 )
 
-APP_VERSION = "2.0.0"
+import shutil
+
+APP_VERSION = "2.0.1"
+
+# --- FFMPEG Configuration ---
+# Explicitly tell Pydub where ffmpeg/ffprobe are
+ffmpeg_path = shutil.which("ffmpeg")
+ffprobe_path = shutil.which("ffprobe")
+
+if ffmpeg_path:
+    AudioSegment.converter = ffmpeg_path
+if ffprobe_path:
+    AudioSegment.ffprobe = ffprobe_path
+
+# Display Debug Info in Sidebar (Temporary)
+with st.sidebar:
+    st.caption(f"Backend Info:")
+    st.caption(f"- FFMPEG: {ffmpeg_path or 'Not Found'}")
+    st.caption(f"- FFPROBE: {ffprobe_path or 'Not Found'}")
 
 st.title(f"Music Tempo Editor (v{APP_VERSION})")
 
