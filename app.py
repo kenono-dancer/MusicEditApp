@@ -49,25 +49,68 @@ if 'automation_start_time' not in st.session_state:
 def load_audio_segment(file_bytes, file_name):
     """
     Load bytes into Pydub AudioSegment.
+    Tries Pydub first (ffmpeg), then Librosa (soundfile/audioread) as fallback.
     """
+    # 1. Create temp file
     try:
         suffix = os.path.splitext(file_name)[1]
+        if not suffix:
+            suffix = ".mp3" # default guess
+            
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
             tmp_file.write(file_bytes)
             tmp_path = tmp_file.name
-        
-        # Pydub auto-detects format based on ffmpeg compatibility
-        # We explicitly rely on extension or ffmpeg detection
-        audio = AudioSegment.from_file(tmp_path)
-        
-        # Cleanup
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-            
-        return audio
     except Exception as e:
-        st.error(f"Error loading audio: {e}")
+        st.error(f"Error creating temp file: {e}")
         return None
+
+    # 2. Try Loading
+    audio = None
+    
+    # Attempt 1: Pydub (Direct FFMPEG)
+    try:
+        audio = AudioSegment.from_file(tmp_path)
+    except Exception as e_pydub:
+        print(f"Pydub load failed: {e_pydub}. Trying Fallback...")
+        
+        # Attempt 2: Librosa -> Pydub (Numpy Conversion)
+        try:
+            # Librosa loads as float32 [-1, 1]
+            y, sr = librosa.load(tmp_path, sr=None, mono=False)
+            
+            # Handle Multi-channel
+            if y.ndim == 1:
+                channels = 1
+                y_int = (y * 32767).astype(np.int16)
+            else:
+                channels = y.shape[0]
+                y = y.T # Pydub expects (samples, channels) flattened? No, raw bytes.
+                # Actually Pydub expects interleaved bytes for stereo
+                # So we flatten Fortran style or resize?
+                # Easiest is to iterate channels if stereo? 
+                # Better: Use simple conversion for Mono/Stereo
+                y_int = (y.T * 32767).astype(np.int16)
+                
+            # Create AudioSegment from raw data
+            audio = AudioSegment(
+                y_int.tobytes(), 
+                frame_rate=sr,
+                sample_width=2, # 16-bit
+                channels=channels
+            )
+            print("Librosa fallback successful.")
+            
+        except Exception as e_librosa:
+            st.error(f"Audio Load Error. Pydub: {e_pydub} | Librosa: {e_librosa}")
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            return None
+
+    # Cleanup
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+        
+    return audio
 
 def add_track_and_reset(uploaded_file):
     try:
