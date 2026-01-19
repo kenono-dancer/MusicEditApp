@@ -9,6 +9,7 @@ import io
 import uuid
 import time
 import pandas as pd
+import streamlit.components.v1 as components
 try:
     from streamlit import fragment
 except ImportError:
