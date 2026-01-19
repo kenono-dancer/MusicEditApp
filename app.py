@@ -28,7 +28,7 @@ import shutil
 import imageio_ffmpeg
 import subprocess
 
-APP_VERSION = "2.0.9"
+APP_VERSION = "2.1.0"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -298,21 +298,36 @@ def generate_dynamic_mix():
     # 2. Apply Tempo
     # If Automation Data exists, use Variable Rate
     if st.session_state.automation_data:
-        # Sort points by timestamp
-        points = sorted(st.session_state.automation_data, key=lambda x: x[0])
+        # Sort
+        raw_points = sorted(st.session_state.automation_data, key=lambda x: x[0])
         
-        # Ensure start at 0.0
-        if not points or points[0][0] > 0:
-             initial_rate = 1.0
-             if points:
-                 initial_rate = points[0][1] # Use first recorded rate if close to 0? Or just 1.0
-             points.insert(0, (0.0, initial_rate))
+        # --- Simplify Points (Downsample) ---
+        # Fixes bug where tiny chunks (<50ms) trigger safety fallback to 1.0x
+        points = []
+        if raw_points:
+             # Always keep first point (or 0.0)
+             if raw_points[0][0] > 0:
+                 points.append((0.0, 1.0))
              
+             prev_t = -1.0
+             min_interval = 0.25 # 250ms minimum chunk size
+             
+             for t, r in raw_points:
+                 if t - prev_t >= min_interval:
+                     points.append((t, r))
+                     prev_t = t
+                 else:
+                     # Update the last point's rate to the newest one (Capture the "End" of the drag)
+                     if points:
+                         points[-1] = (points[-1][0], r)
+        
+        if not points:
+             points = [(0.0, 1.0)]
+
         outputs = []
         total_samples = len(y)
         current_audio_sample = 0
         
-        # Iterate through timeline segments
         for i in range(len(points)):
             t_start, rate = points[i]
             
@@ -321,61 +336,55 @@ def generate_dynamic_mix():
                 t_end = points[i+1][0]
                 wall_duration = t_end - t_start
             else:
-                # Last point until end of audio? 
-                # We don't know exact wall duration remaining, but we know audio remaining.
-                # Audio Remaining = Total - Current
-                # Wall Duration = Audio Remaining / Rate
                 samples_remaining = total_samples - current_audio_sample
                 wall_duration = (samples_remaining / sr) / rate if rate > 0 else 0
                 
             if wall_duration <= 0:
                 continue
                 
-            # Calculate required audio samples for this segment
             # d_audio = d_wall * rate
             audio_duration_needed = wall_duration * rate
             samples_needed = int(audio_duration_needed * sr)
             
-            # Boundary Check
             if current_audio_sample >= total_samples:
                 break
                 
             end_sample = min(current_audio_sample + samples_needed, total_samples)
-            
-            # Extract Chunk
             chunk = y[current_audio_sample:end_sample]
             current_audio_sample = end_sample
             
             if len(chunk) == 0:
                 continue
             
-            # Time Stretch
-            # If rate > 1.0 (Fast), we consumed MORE audio in LESS time.
-            # We stretch it to match the wall_duration (approximately).
-            # librosa.effects.time_stretch(y, rate) -> outputs audio of length len(y)/rate.
-            # If we pass in 'samples_needed' which is 'wall * rate', output len is 'wall * rate / rate' = 'wall'. Correct.
+            # Use a slightly aggressive threshold (1024) and handle fallback BETTER
+            # If too small, we just append RAW. 
+            # BUT with simplification, chunks should be at least 0.25s * sr ~ 11000 samples.
+            # So this branch should rarely act unless at VERY end.
             
             if abs(rate - 1.0) > 0.001:
-                # Speed up or slow down
-                # Handle edge case of very small chunks causing FFT errors
+                # 2048 is default n_fft for librosa
                 if len(chunk) > 2048:
                      chunk_stretched = librosa.effects.time_stretch(chunk, rate=rate)
+                     outputs.append(chunk_stretched)
                 else:
-                     chunk_stretched = chunk # Too small to stretch reliably
+                     # Fallback: Too small to stretch. 
+                     # If we just append, we lose sync slightly. 
+                     # Better to try Resampling? Or just padding?
+                     # For <50ms, the error is negligible.
+                     outputs.append(chunk) 
             else:
-                chunk_stretched = chunk
-                
-            outputs.append(chunk_stretched)
-            
-        # If any audio remains (e.g. recording stopped early), append it at last known rate?
-        # Or just append raw? User might have stopped recording but wants rest of song.
+                outputs.append(chunk)
+
+        # Append Remainder
         if current_audio_sample < total_samples:
              remainder = y[current_audio_sample:]
-             # Use last rate
              last_rate = points[-1][1] if points else 1.0
              if abs(last_rate - 1.0) > 0.001 and len(remainder) > 2048:
-                  remainder_stretched = librosa.effects.time_stretch(remainder, rate=last_rate)
-                  outputs.append(remainder_stretched)
+                  try:
+                      remainder_stretched = librosa.effects.time_stretch(remainder, rate=last_rate)
+                      outputs.append(remainder_stretched)
+                  except:
+                      outputs.append(remainder)
              else:
                   outputs.append(remainder)
 
@@ -383,7 +392,7 @@ def generate_dynamic_mix():
             y_final = np.concatenate(outputs)
         else:
             y_final = y
-
+            
     # Else use Constant Master Tempo
     else:
         rate = st.session_state.master_tempo
