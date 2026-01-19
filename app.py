@@ -581,7 +581,7 @@ for i, track in enumerate(st.session_state.tracks):
                         track_buf.getvalue(), 
                         format='audio/wav', 
                         start_time=int(track["trim_start"]),
-                        key=f"audio_{track['id']}_{st.session_state.audio_player_key}",
+                        # key argument removed as it causes error in this Streamlit version
                         autoplay=st.session_state.auto_play
                     )
                     
