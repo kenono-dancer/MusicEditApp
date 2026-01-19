@@ -372,23 +372,24 @@ def on_tempo_slider_change():
 
 # --- Sidebar / Header Controls ---
 
-# Fragment for Tempo Controls (Isolated Rerun)
+# Fragment for Tempo Controls (Isolated Rerun for Performance)
 @fragment
 def render_tempo_controls():
     st.subheader("Master Tempo")
     
-    # automation controls
+    # 1. Automation State Inputs
     c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
     with c1:
-        # Toggle Recording
-        is_rec = st.checkbox("🔴 Rec Auto", value=st.session_state.automation_is_recording, key="record_toggle", help="Check this, then move slider to record.")
+        # We handle state manually to avoid complex callbacks in fragments
+        is_active = st.session_state.automation_is_recording
+        new_active = st.checkbox("🔴 Rec Auto", value=is_active, key="rec_toggle_cb", help="Check this, then move slider to record.")
         
-        if is_rec != st.session_state.automation_is_recording:
-            st.session_state.automation_is_recording = is_rec
-            if is_rec:
-                st.session_state.automation_start_time = time.time()
-                st.toast("Recording ON! Move slider now.")
-            else:
+        if new_active != is_active:
+             st.session_state.automation_is_recording = new_active
+             if new_active:
+                 st.session_state.automation_start_time = time.time()
+                 st.toast("Recording ON! Move slider.")
+             else:
                  st.toast("Recording Stopped.")
 
     with c2:
@@ -400,56 +401,62 @@ def render_tempo_controls():
         n_points = len(st.session_state.automation_data)
         st.metric("Points", n_points)
 
-    # Slider Logic
-    def on_change_callback():
-        # Record data point if recording
+    # 2. Slider Input
+    # We remove on_change and just check logic after render
+    # Standard Streamlit: This script runs from top to bottom on interaction.
+    # The 'value' is already the NEW value when we read it here.
+    
+    current_val = st.session_state.master_tempo
+    
+    new_val = st.slider(
+        "Playback Rate (0.5x - 2.0x)",
+        min_value=0.500,
+        max_value=2.000,
+        value=current_val,
+        step=0.001,
+        format="%.3f",
+        key="tempo_slider_widget"
+    )
+    
+    # Update Session State
+    if new_val != current_val:
+        st.session_state.master_tempo = new_val
+        # RECORDING LOGIC
         if st.session_state.automation_is_recording:
              if st.session_state.automation_start_time is None:
                  st.session_state.automation_start_time = time.time()
                  
              elapsed = time.time() - st.session_state.automation_start_time
-             # NEW value from session state
-             new_rate = st.session_state.master_tempo
-             st.session_state.automation_data.append((elapsed, new_rate))
-
-    val = st.slider(
-        "Playback Rate (0.5x - 2.0x)",
-        min_value=0.500,
-        max_value=2.000,
-        value=st.session_state.master_tempo,
-        step=0.001,
-        format="%.3f",
-        key="master_tempo",
-        on_change=on_change_callback
-    )
+             st.session_state.automation_data.append((elapsed, new_val))
     
-    # ROBUST JS Injection
-    # We use setInterval to enforce the rate for a few seconds after any slider move.
-    # We also log to console for debugging.
+    
+    # 3. Robust JS Injection for Playback Rate
+    # We attempt to find audio elements in various scopes (Main + Parent)
     js_code = f"""
     <script>
         (function() {{
-            const targetRate = {val};
-            console.log("Setting playbackRate to:", targetRate);
+            const targetRate = {new_val};
             
-            function enforceRate() {{
-                const audios = document.querySelectorAll('audio');
-                audios.forEach(a => {{
-                    if (a.playbackRate !== targetRate) {{
-                        a.playbackRate = targetRate;
-                        // console.log("Updated rate for:", a);
+            function enforce() {{
+                // 1. Try Main Document
+                const audios1 = document.querySelectorAll('audio');
+                audios1.forEach(a => {{ a.playbackRate = targetRate; }});
+                
+                // 2. Try Parent Document (if iframe)
+                try {{
+                    if (window.parent && window.parent.document) {{
+                        const audios2 = window.parent.document.querySelectorAll('audio');
+                        audios2.forEach(a => {{ a.playbackRate = targetRate; }});
                     }}
-                }});
+                }} catch(e) {{
+                    // Access denied or no parent
+                }}
             }}
             
-            // Run immediately
-            enforceRate();
-            
-            // And multiple times to catch elements if they are mounting
-            const interval = setInterval(enforceRate, 100);
-            
-            // Stop checks after 2 seconds to save resources (slider move will re-trigger this script)
-            setTimeout(() => clearInterval(interval), 2000);
+            // Execute aggressively
+            enforce();
+            const timer = setInterval(enforce, 200);
+            setTimeout(() => clearInterval(timer), 2500);
         }})();
     </script>
     """
