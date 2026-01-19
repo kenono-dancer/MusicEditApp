@@ -681,11 +681,11 @@ if st.button("Generate Mix & Preview", type="primary"):
 # Footer
 reload_url = f"/?v={int(time.time())}"
 st.markdown(
-    f\"\"\"
+    f"""
     <div style="position: fixed; left: 0; bottom: 0; width: 100%; background-color: #f8f9fa; color: #333; text-align: center; padding: 10px; font-size: 14px; border-top: 1px solid #e9ecef; z-index: 9999;">
         Music Edit App v{APP_VERSION} | 
         <a href="{reload_url}" target="_self" title="Click to update/reload app">Update / Reload</a>
     </div>
-    \"\"\",
+    """,
     unsafe_allow_html=True
 )
