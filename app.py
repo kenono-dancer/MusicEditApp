@@ -28,7 +28,7 @@ import shutil
 import imageio_ffmpeg
 import subprocess
 
-APP_VERSION = "2.0.6"
+APP_VERSION = "2.0.7"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -447,7 +447,7 @@ def render_tempo_controls():
     # 3. Robust JS Injection using Components (Iframe breakout)
     # This forces a new script execution on every render
     
-    js_code = f\"\"\"
+    js_code = f"""
     <script>
         console.log("Tempo Component Loaded. Target: {new_val}x");
         
@@ -508,7 +508,7 @@ def render_tempo_controls():
             console.error("Tempo JS Error:", e);
         }}
     </script>
-    \"\"\"
+    """
     
     # Height=0 makes it invisible in layout, but script runs
     components.html(js_code, height=0)
