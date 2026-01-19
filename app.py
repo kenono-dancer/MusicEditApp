@@ -28,7 +28,7 @@ import shutil
 import imageio_ffmpeg
 import subprocess
 
-APP_VERSION = "2.0.8"
+APP_VERSION = "2.0.9"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -553,7 +553,7 @@ def render_tempo_controls():
                     // Force update if mismatch
                     if (Math.abs(a.playbackRate - targetRate) > 0.001) {{
                         a.playbackRate = targetRate;
-                        a.preservesPitch = false; // Optional try
+                        // a.preservesPitch = false; // Removed to match Librosa default (usually preserves pitch)
                         updated++;
                     }}
                     a.style.border = "3px solid #00ff00"; // Visual confirm
@@ -575,6 +575,14 @@ def render_tempo_controls():
     
     # Height=0 makes it invisible in layout, but script runs
     components.html(js_code, height=0)
+
+    # DEBUG: Show Automation Data
+    with st.expander("Debug: Automation Data"):
+         if st.session_state.automation_data:
+             df = pd.DataFrame(st.session_state.automation_data, columns=["Time (s)", "Rate"])
+             st.dataframe(df, use_container_width=True)
+         else:
+             st.write("No automation data yet.")
 
 
 with st.container():
