@@ -28,7 +28,7 @@ import shutil
 import imageio_ffmpeg
 import subprocess
 
-APP_VERSION = "2.0.5"
+APP_VERSION = "2.0.6"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
