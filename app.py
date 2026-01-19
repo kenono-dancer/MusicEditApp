@@ -446,33 +446,91 @@ def render_tempo_controls():
              st.session_state.automation_data.append((elapsed, new_val))
     
     
-    # 3. Robust JS Injection for Playback Rate
-    # We attempt to find audio elements in various scopes (Main + Parent)
+    # 3. Robust JS Injection with Visual Debugger
     js_code = f"""
     <script>
         (function() {{
             const targetRate = {new_val};
             
-            function enforce() {{
-                // 1. Try Main Document
-                const audios1 = document.querySelectorAll('audio');
-                audios1.forEach(a => {{ a.playbackRate = targetRate; }});
-                
-                // 2. Try Parent Document (if iframe)
-                try {{
-                    if (window.parent && window.parent.document) {{
-                        const audios2 = window.parent.document.querySelectorAll('audio');
-                        audios2.forEach(a => {{ a.playbackRate = targetRate; }});
-                    }}
-                }} catch(e) {{
-                    // Access denied or no parent
-                }}
+            // --- Visual Debugger ---
+            let debugBox = document.getElementById('tempo-debug-box');
+            if (!debugBox) {{
+                debugBox = document.createElement('div');
+                debugBox.id = 'tempo-debug-box';
+                debugBox.style.position = 'fixed';
+                debugBox.style.bottom = '10px';
+                debugBox.style.right = '10px';
+                debugBox.style.backgroundColor = 'rgba(0,0,0,0.8)';
+                debugBox.style.color = '#0f0';
+                debugBox.style.padding = '10px';
+                debugBox.style.zIndex = '9999';
+                debugBox.style.fontFamily = 'monospace';
+                debugBox.style.borderRadius = '5px';
+                debugBox.innerHTML = 'Initializing...';
+                document.body.appendChild(debugBox);
+            }}
+
+            function updateDebug(msg) {{
+                if (debugBox) debugBox.innerHTML = `Target: ${{targetRate}}x<br>${{msg}}`;
             }}
             
-            // Execute aggressively
+            // --- Audio Finder ---
+            function getAllAudioElements(root) {{
+                let audios = [];
+                if (!root) return audios;
+                try {{
+                    // 1. Tag Name
+                    root.querySelectorAll('audio').forEach(a => audios.push(a));
+                    // 2. Class Name (fallback for weird custom elements?)
+                    // root.querySelectorAll('.stAudio').forEach(a => audios.push(a));
+                    
+                    // 3. Recursive Steps
+                    root.querySelectorAll('*').forEach(el => {{
+                        if (el.shadowRoot) {{
+                            audios = audios.concat(getAllAudioElements(el.shadowRoot));
+                        }}
+                    }});
+                    
+                    root.querySelectorAll('iframe').forEach(iframe => {{
+                        try {{
+                            if (iframe.contentDocument) {{
+                                audios = audios.concat(getAllAudioElements(iframe.contentDocument));
+                            }}
+                        }} catch(e) {{}}
+                    }});
+                }} catch(e) {{
+                    console.error("Search error", e);
+                }}
+                return audios;
+            }}
+
+            function enforce() {{
+                let allAudios = getAllAudioElements(document);
+                try {{
+                    if (window.parent && window.parent.document && window.parent !== window) {{
+                        let parentAudios = getAllAudioElements(window.parent.document);
+                        allAudios = allAudios.concat(parentAudios);
+                    }}
+                }} catch(e) {{}}
+
+                // Update Debug Info
+                updateDebug(`Found Audio Tags: ${{allAudios.length}}`);
+
+                allAudios.forEach(a => {{
+                    if (Math.abs(a.playbackRate - targetRate) > 0.01) {{
+                        a.playbackRate = targetRate;
+                        a.style.border = "2px solid red"; // Mark found elements
+                    }} else {{
+                         a.style.border = "2px solid #00ff00"; // Confirmed set
+                    }}
+                }});
+            }}
+            
+            // Run Loop
             enforce();
-            const timer = setInterval(enforce, 200);
-            setTimeout(() => clearInterval(timer), 2500);
+            const timer = setInterval(enforce, 500); 
+            // Keep running longer (10s) to ensure we catch everything
+            setTimeout(() => clearInterval(timer), 10000);
         }})();
     </script>
     """
