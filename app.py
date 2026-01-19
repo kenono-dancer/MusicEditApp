@@ -52,8 +52,8 @@ if not ffmpeg_path:
         if not os.path.exists(target_ffmpeg):
             shutil.copy(ffmpeg_exe, target_ffmpeg)
             # Make sure it's executable
-            st = os.stat(target_ffmpeg)
-            os.chmod(target_ffmpeg, st.st_mode | 0o111)
+            st_info = os.stat(target_ffmpeg)
+            os.chmod(target_ffmpeg, st_info.st_mode | 0o111)
             
         # Add this bin dir to PATH
         os.environ["PATH"] += os.pathsep + bin_dir
@@ -67,9 +67,6 @@ if not ffmpeg_path:
 # Set Pydub paths
 if ffmpeg_path:
     AudioSegment.converter = ffmpeg_path
-    # Usually ffprobe is in the same dir ??
-    # Imageio-ffmpeg doesn't strictly provide ffprobe, but Pydub mainly needs converter for transcode.
-    # For probe, it might fail if we don't have it.
     
 if ffprobe_path:
     AudioSegment.ffprobe = ffprobe_path
@@ -447,16 +444,21 @@ def render_tempo_controls():
              st.session_state.automation_data.append((elapsed, new_val))
     
     
-    # 3. Robust JS Injection with Visual Debugger
-    js_code = f"""
+    # 3. Robust JS Injection using Components (Iframe breakout)
+    # This forces a new script execution on every render
+    
+    js_code = f\"\"\"
     <script>
-        (function() {{
+        console.log("Tempo Component Loaded. Target: {new_val}x");
+        
+        try {{
             const targetRate = {new_val};
+            const parentDoc = window.parent.document;
             
-            // --- Visual Debugger ---
-            let debugBox = document.getElementById('tempo-debug-box');
+            // Visual Debugger (In parent)
+            let debugBox = parentDoc.getElementById('tempo-debug-box');
             if (!debugBox) {{
-                debugBox = document.createElement('div');
+                debugBox = parentDoc.createElement('div');
                 debugBox.id = 'tempo-debug-box';
                 debugBox.style.position = 'fixed';
                 debugBox.style.bottom = '10px';
@@ -466,76 +468,50 @@ def render_tempo_controls():
                 debugBox.style.padding = '10px';
                 debugBox.style.zIndex = '9999';
                 debugBox.style.fontFamily = 'monospace';
+                debugBox.style.fontSize = '12px';
                 debugBox.style.borderRadius = '5px';
-                debugBox.innerHTML = 'Initializing...';
-                document.body.appendChild(debugBox);
+                debugBox.innerHTML = 'Init...';
+                parentDoc.body.appendChild(debugBox);
             }}
 
             function updateDebug(msg) {{
-                if (debugBox) debugBox.innerHTML = `Target: ${{targetRate}}x<br>${{msg}}`;
-            }}
-            
-            // --- Audio Finder ---
-            function getAllAudioElements(root) {{
-                let audios = [];
-                if (!root) return audios;
-                try {{
-                    // 1. Tag Name
-                    root.querySelectorAll('audio').forEach(a => audios.push(a));
-                    // 2. Class Name (fallback for weird custom elements?)
-                    // root.querySelectorAll('.stAudio').forEach(a => audios.push(a));
-                    
-                    // 3. Recursive Steps
-                    root.querySelectorAll('*').forEach(el => {{
-                        if (el.shadowRoot) {{
-                            audios = audios.concat(getAllAudioElements(el.shadowRoot));
-                        }}
-                    }});
-                    
-                    root.querySelectorAll('iframe').forEach(iframe => {{
-                        try {{
-                            if (iframe.contentDocument) {{
-                                audios = audios.concat(getAllAudioElements(iframe.contentDocument));
-                            }}
-                        }} catch(e) {{}}
-                    }});
-                }} catch(e) {{
-                    console.error("Search error", e);
-                }}
-                return audios;
+                if (debugBox) debugBox.innerHTML = `<strong>Tempo Debug v2.0.6</strong><br>Rate: ${{targetRate}}x<br>${{msg}}`;
             }}
 
             function enforce() {{
-                let allAudios = getAllAudioElements(document);
-                try {{
-                    if (window.parent && window.parent.document && window.parent !== window) {{
-                        let parentAudios = getAllAudioElements(window.parent.document);
-                        allAudios = allAudios.concat(parentAudios);
-                    }}
-                }} catch(e) {{}}
-
-                // Update Debug Info
-                updateDebug(`Found Audio Tags: ${{allAudios.length}}`);
-
-                allAudios.forEach(a => {{
-                    if (Math.abs(a.playbackRate - targetRate) > 0.01) {{
+                // Search in Parent Document (Main App)
+                // We use Array.from to handle HTMLCollections safely
+                let audios = Array.from(parentDoc.getElementsByTagName('audio'));
+                
+                let found = audios.length;
+                let updated = 0;
+                
+                audios.forEach(a => {{
+                    // Force update if mismatch
+                    if (Math.abs(a.playbackRate - targetRate) > 0.001) {{
                         a.playbackRate = targetRate;
-                        a.style.border = "2px solid red"; // Mark found elements
-                    }} else {{
-                         a.style.border = "2px solid #00ff00"; // Confirmed set
+                        a.preservesPitch = false; // Optional try
+                        updated++;
                     }}
+                    a.style.border = "3px solid #00ff00"; // Visual confirm
                 }});
+                
+                updateDebug(`Found Audio: ${{found}}<br>Updated: ${{updated}}<br>Status: Running`);
             }}
             
-            // Run Loop
+            // Run
             enforce();
-            const timer = setInterval(enforce, 500); 
-            // Keep running longer (10s) to ensure we catch everything
-            setTimeout(() => clearInterval(timer), 10000);
-        }})();
+            // Repeat to catch React re-renders or lazy loads
+            setInterval(enforce, 500);
+            
+        }} catch (e) {{
+            console.error("Tempo JS Error:", e);
+        }}
     </script>
-    """
-    st.markdown(js_code, unsafe_allow_html=True)
+    \"\"\"
+    
+    # Height=0 makes it invisible in layout, but script runs
+    components.html(js_code, height=0)
 
 
 with st.container():
@@ -705,11 +681,11 @@ if st.button("Generate Mix & Preview", type="primary"):
 # Footer
 reload_url = f"/?v={int(time.time())}"
 st.markdown(
-    f"""
+    f\"\"\"
     <div style="position: fixed; left: 0; bottom: 0; width: 100%; background-color: #f8f9fa; color: #333; text-align: center; padding: 10px; font-size: 14px; border-top: 1px solid #e9ecef; z-index: 9999;">
         Music Edit App v{APP_VERSION} | 
         <a href="{reload_url}" target="_self" title="Click to update/reload app">Update / Reload</a>
     </div>
-    """,
+    \"\"\",
     unsafe_allow_html=True
 )
