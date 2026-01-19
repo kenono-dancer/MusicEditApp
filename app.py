@@ -28,7 +28,7 @@ import shutil
 import imageio_ffmpeg
 import subprocess
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.1"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -469,17 +469,22 @@ def render_tempo_controls():
     
     with c_minus:
         if st.button("➖ 0.1%", use_container_width=True):
-            st.session_state.master_tempo = max(0.5, current_val - 0.001)
+            new_v = max(0.5, current_val - 0.001)
+            st.session_state.master_tempo = new_v
+            st.session_state.tempo_slider_widget = new_v # Force widget update
             st.rerun()
             
     with c_reset:
         if st.button("Reset (1.0x)", use_container_width=True):
             st.session_state.master_tempo = 1.0
+            st.session_state.tempo_slider_widget = 1.0 # Force widget update
             st.rerun()
             
     with c_plus:
         if st.button("➕ 0.1%", use_container_width=True):
-            st.session_state.master_tempo = min(2.0, current_val + 0.001)
+            new_v = min(2.0, current_val + 0.001)
+            st.session_state.master_tempo = new_v
+            st.session_state.tempo_slider_widget = new_v # Force widget update
             st.rerun()
 
     # -- Row 3: Slider (Full Width) --
@@ -585,28 +590,32 @@ def render_tempo_controls():
     # Height=0 makes it invisible in layout, but script runs
     components.html(js_code, height=0)
 
-    # DEBUG: Show Automation Data
-    with st.expander("Debug: Automation Data"):
-         if st.session_state.automation_data:
-             df = pd.DataFrame(st.session_state.automation_data, columns=["Time (s)", "Rate"])
-             st.dataframe(df, use_container_width=True)
-         else:
-             st.write("No automation data yet.")
+
+    # DEBUG: Show Automation Data (Always Visible)
+    st.caption("Debug: Automation Data")
+    if st.session_state.automation_data:
+         df = pd.DataFrame(st.session_state.automation_data, columns=["Time (s)", "Rate"])
+         st.dataframe(df, use_container_width=True, height=150)
+    else:
+         st.text("No automation data yet.")
 
 
 with st.container():
-    col_up, col_tempo = st.columns([1, 1])
+    # File Uploader on its own row, or small column? 
+    # User wanted slider FULL WIDTH. 
+    # So we put uploader in a container above.
     
-    with col_up:
-        # Dynamic key to reset uploader after use
-        current_key = f"uploader_{st.session_state.uploader_key}"
-        uploaded_file = st.file_uploader("Add Track (wav, mp3, m4a)", type=['wav', 'mp3', 'm4a'], key=current_key)
-        
-        if uploaded_file:
-            add_track_and_reset(uploaded_file)
+    # Dynamic key to reset uploader after use
+    current_key = f"uploader_{st.session_state.uploader_key}"
+    uploaded_file = st.file_uploader("Add Track (wav, mp3, m4a)", type=['wav', 'mp3', 'm4a'], key=current_key)
     
-    with col_tempo:
-        render_tempo_controls()
+    if uploaded_file:
+        add_track_and_reset(uploaded_file)
+    
+    st.markdown("---")
+    
+    # Tempo Controls (Full Width)
+    render_tempo_controls()
 
 st.markdown("---")
 
