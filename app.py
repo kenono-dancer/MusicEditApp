@@ -106,6 +106,12 @@ if 'automation_data' not in st.session_state:
 if 'automation_start_time' not in st.session_state:
     st.session_state.automation_start_time = None
 
+if 'audio_player_key' not in st.session_state:
+    st.session_state.audio_player_key = 0
+    
+if 'auto_play' not in st.session_state:
+    st.session_state.auto_play = False
+
 # --- Helper Functions ---
 
 def load_audio_segment(file_bytes, file_name):
@@ -378,23 +384,33 @@ def render_tempo_controls():
     st.subheader("Master Tempo")
     
     # 1. Automation State Inputs
-    c1, c2, c3 = st.columns([0.4, 0.3, 0.3])
+    c1, c2, c3 = st.columns([0.5, 0.25, 0.25])
     with c1:
-        # We handle state manually to avoid complex callbacks in fragments
         is_active = st.session_state.automation_is_recording
-        new_active = st.checkbox("🔴 Rec Auto", value=is_active, key="rec_toggle_cb", help="Check this, then move slider to record.")
         
-        if new_active != is_active:
-             st.session_state.automation_is_recording = new_active
-             if new_active:
-                 st.session_state.automation_start_time = time.time()
-                 st.toast("Recording ON! Move slider.")
-             else:
-                 st.toast("Recording Stopped.")
+        # New "Live Recording" Workflow
+        if not is_active:
+            if st.button("🔴 Start Recording Playback", help="Starts Audio & Recording together", type="primary"):
+                # Reset Data
+                st.session_state.automation_data = []
+                # Start Recording
+                st.session_state.automation_is_recording = True
+                st.session_state.automation_start_time = time.time()
+                # Trigger AutoPlay (Force Remount of Audio Players)
+                st.session_state.audio_player_key += 1
+                st.session_state.auto_play = True
+                st.rerun()
+        else:
+            if st.button("⏹ Stop Recording", type="secondary"):
+                st.session_state.automation_is_recording = False
+                st.session_state.auto_play = False
+                st.rerun()
 
     with c2:
-        if st.button("Clear Data"):
-            st.session_state.automation_data = []
+        if st.button("Clear Play"):
+            # Stop verify
+            st.session_state.auto_play = False
+            st.session_state.audio_player_key += 1
             st.rerun()
             
     with c3:
@@ -560,7 +576,14 @@ for i, track in enumerate(st.session_state.tracks):
                 with io.BytesIO() as track_buf:
                     audio_source.export(track_buf, format="wav")
                     # NOW we use the UPDATED track["trim_start"] from the slider above
-                    st.audio(track_buf.getvalue(), format='audio/wav', start_time=int(track["trim_start"]))
+                    # Dynamic Key & AutoPlay for Sync
+                    st.audio(
+                        track_buf.getvalue(), 
+                        format='audio/wav', 
+                        start_time=int(track["trim_start"]),
+                        key=f"audio_{track['id']}_{st.session_state.audio_player_key}",
+                        autoplay=st.session_state.auto_play
+                    )
                     
         except Exception as e:
              st.warning(f"Visualization error: {e}")
