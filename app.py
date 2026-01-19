@@ -28,7 +28,7 @@ import shutil
 import imageio_ffmpeg
 import subprocess
 
-APP_VERSION = "2.0.7"
+APP_VERSION = "2.0.8"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -298,48 +298,87 @@ def generate_dynamic_mix():
     # 2. Apply Tempo
     # If Automation Data exists, use Variable Rate
     if st.session_state.automation_data:
+        # Sort points by timestamp
         points = sorted(st.session_state.automation_data, key=lambda x: x[0])
         
-        # Make sure we cover the start
+        # Ensure start at 0.0
         if not points or points[0][0] > 0:
-             # Default to current slider value or 1.0 for the start
-             initial_rate = 1.0 
+             initial_rate = 1.0
+             if points:
+                 initial_rate = points[0][1] # Use first recorded rate if close to 0? Or just 1.0
              points.insert(0, (0.0, initial_rate))
              
         outputs = []
         total_samples = len(y)
+        current_audio_sample = 0
         
+        # Iterate through timeline segments
         for i in range(len(points)):
             t_start, rate = points[i]
             
-            # Determine end time for this segment
+            # Determine duration of this segment (Wall Time)
             if i + 1 < len(points):
                 t_end = points[i+1][0]
+                wall_duration = t_end - t_start
             else:
-                t_end = len(y) / sr # End of file
+                # Last point until end of audio? 
+                # We don't know exact wall duration remaining, but we know audio remaining.
+                # Audio Remaining = Total - Current
+                # Wall Duration = Audio Remaining / Rate
+                samples_remaining = total_samples - current_audio_sample
+                wall_duration = (samples_remaining / sr) / rate if rate > 0 else 0
                 
-            start_sample = int(t_start * sr)
-            end_sample = int(t_end * sr)
-            
-            # Safety bounds
-            start_sample = max(0, min(start_sample, total_samples))
-            end_sample = max(0, min(end_sample, total_samples))
-            
-            if start_sample >= end_sample:
+            if wall_duration <= 0:
                 continue
                 
-            chunk = y[start_sample:end_sample]
+            # Calculate required audio samples for this segment
+            # d_audio = d_wall * rate
+            audio_duration_needed = wall_duration * rate
+            samples_needed = int(audio_duration_needed * sr)
+            
+            # Boundary Check
+            if current_audio_sample >= total_samples:
+                break
+                
+            end_sample = min(current_audio_sample + samples_needed, total_samples)
+            
+            # Extract Chunk
+            chunk = y[current_audio_sample:end_sample]
+            current_audio_sample = end_sample
+            
+            if len(chunk) == 0:
+                continue
             
             # Time Stretch
-            # Note: Librosa time_stretch is quality but slow for many small chunks
-            if rate != 1.0:
+            # If rate > 1.0 (Fast), we consumed MORE audio in LESS time.
+            # We stretch it to match the wall_duration (approximately).
+            # librosa.effects.time_stretch(y, rate) -> outputs audio of length len(y)/rate.
+            # If we pass in 'samples_needed' which is 'wall * rate', output len is 'wall * rate / rate' = 'wall'. Correct.
+            
+            if abs(rate - 1.0) > 0.001:
                 # Speed up or slow down
-                chunk_stretched = librosa.effects.time_stretch(chunk, rate=rate)
+                # Handle edge case of very small chunks causing FFT errors
+                if len(chunk) > 2048:
+                     chunk_stretched = librosa.effects.time_stretch(chunk, rate=rate)
+                else:
+                     chunk_stretched = chunk # Too small to stretch reliably
             else:
                 chunk_stretched = chunk
                 
             outputs.append(chunk_stretched)
             
+        # If any audio remains (e.g. recording stopped early), append it at last known rate?
+        # Or just append raw? User might have stopped recording but wants rest of song.
+        if current_audio_sample < total_samples:
+             remainder = y[current_audio_sample:]
+             # Use last rate
+             last_rate = points[-1][1] if points else 1.0
+             if abs(last_rate - 1.0) > 0.001 and len(remainder) > 2048:
+                  remainder_stretched = librosa.effects.time_stretch(remainder, rate=last_rate)
+                  outputs.append(remainder_stretched)
+             else:
+                  outputs.append(remainder)
+
         if outputs:
             y_final = np.concatenate(outputs)
         else:
@@ -348,7 +387,7 @@ def generate_dynamic_mix():
     # Else use Constant Master Tempo
     else:
         rate = st.session_state.master_tempo
-        if rate != 1.0:
+        if abs(rate - 1.0) > 0.001:
             y_final = librosa.effects.time_stretch(y, rate=rate)
         else:
             y_final = y
@@ -381,67 +420,91 @@ def on_tempo_slider_change():
 def render_tempo_controls():
     st.subheader("Master Tempo")
     
-    # 1. Automation State Inputs
+    # -- Row 1: Recording & Stats --
     c1, c2, c3 = st.columns([0.5, 0.25, 0.25])
     with c1:
         is_active = st.session_state.automation_is_recording
         
-        # New "Live Recording" Workflow
         if not is_active:
-            if st.button("🔴 Start Recording Playback", help="Starts Audio & Recording together", type="primary"):
+            if st.button("🔴 Start Recording Playback", help="Starts Audio & Recording together", type="primary", use_container_width=True):
                 # Reset Data
                 st.session_state.automation_data = []
                 # Start Recording
                 st.session_state.automation_is_recording = True
                 st.session_state.automation_start_time = time.time()
-                # Trigger AutoPlay (Force Remount of Audio Players)
+                # Trigger AutoPlay
                 st.session_state.audio_player_key += 1
                 st.session_state.auto_play = True
                 st.rerun()
         else:
-            if st.button("⏹ Stop Recording", type="secondary"):
+            if st.button("⏹ Stop Recording", type="secondary", use_container_width=True):
                 st.session_state.automation_is_recording = False
                 st.session_state.auto_play = False
                 st.rerun()
 
     with c2:
-        if st.button("Clear Play"):
-            # Stop verify
+        if st.button("Clear Play", use_container_width=True):
             st.session_state.auto_play = False
             st.session_state.audio_player_key += 1
             st.rerun()
             
     with c3:
         n_points = len(st.session_state.automation_data)
-        st.metric("Points", n_points)
+        st.metric("Points", n_points, label_visibility="collapsed")
 
-    # 2. Slider Input
-    # We remove on_change and just check logic after render
-    # Standard Streamlit: This script runs from top to bottom on interaction.
-    # The 'value' is already the NEW value when we read it here.
+    # -- Row 2: Precision Controls (Buttons) --
+    # Buttons to nudge tempo
+    c_minus, c_reset, c_plus = st.columns([1, 1, 1])
     
     current_val = st.session_state.master_tempo
+    
+    with c_minus:
+        if st.button("➖ 0.1%", use_container_width=True):
+            st.session_state.master_tempo = max(0.5, current_val - 0.001)
+            st.rerun()
+            
+    with c_reset:
+        if st.button("Reset (1.0x)", use_container_width=True):
+            st.session_state.master_tempo = 1.0
+            st.rerun()
+            
+    with c_plus:
+        if st.button("➕ 0.1%", use_container_width=True):
+            st.session_state.master_tempo = min(2.0, current_val + 0.001)
+            st.rerun()
+
+    # -- Row 3: Slider (Full Width) --
+    # Standard Streamlit: This script runs from top to bottom on interaction.
+    # The 'value' is already the NEW value when we read it here IF widget updated.
+    
+    # We use a key based on external updates to force sync if buttons were used?
+    # No, session_state is source of truth.
     
     new_val = st.slider(
         "Playback Rate (0.5x - 2.0x)",
         min_value=0.500,
         max_value=2.000,
-        value=current_val,
+        value=st.session_state.master_tempo, # Use state value
         step=0.001,
         format="%.3f",
         key="tempo_slider_widget"
     )
     
-    # Update Session State
-    if new_val != current_val:
+    # Update Session State from Slider
+    if new_val != st.session_state.master_tempo:
         st.session_state.master_tempo = new_val
-        # RECORDING LOGIC
-        if st.session_state.automation_is_recording:
-             if st.session_state.automation_start_time is None:
-                 st.session_state.automation_start_time = time.time()
-                 
-             elapsed = time.time() - st.session_state.automation_start_time
-             st.session_state.automation_data.append((elapsed, new_val))
+        st.rerun()
+
+    # Logic Sync (for recording) checks state
+    final_val = st.session_state.master_tempo
+    
+    # RECORDING LOGIC
+    if st.session_state.automation_is_recording:
+         if st.session_state.automation_start_time is None:
+             st.session_state.automation_start_time = time.time()
+             
+         elapsed = time.time() - st.session_state.automation_start_time
+         st.session_state.automation_data.append((elapsed, final_val))
     
     
     # 3. Robust JS Injection using Components (Iframe breakout)
@@ -449,10 +512,10 @@ def render_tempo_controls():
     
     js_code = f"""
     <script>
-        console.log("Tempo Component Loaded. Target: {new_val}x");
+        console.log("Tempo Component Loaded. Target: {final_val}x");
         
         try {{
-            const targetRate = {new_val};
+            const targetRate = {final_val};
             const parentDoc = window.parent.document;
             
             // Visual Debugger (In parent)
@@ -475,7 +538,7 @@ def render_tempo_controls():
             }}
 
             function updateDebug(msg) {{
-                if (debugBox) debugBox.innerHTML = `<strong>Tempo Debug v2.0.6</strong><br>Rate: ${{targetRate}}x<br>${{msg}}`;
+                if (debugBox) debugBox.innerHTML = `<strong>Tempo Debug v2.0.8</strong><br>Rate: ${{targetRate}}x<br>${{msg}}`;
             }}
 
             function enforce() {{
