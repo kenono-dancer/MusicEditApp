@@ -28,7 +28,7 @@ import shutil
 import imageio_ffmpeg
 import subprocess
 
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.1.2"
 
 # --- FFMPEG Configuration ---
 # 1. Try system ffmpeg
@@ -455,6 +455,7 @@ def render_tempo_controls():
         if st.button("Clear Play", use_container_width=True):
             st.session_state.auto_play = False
             st.session_state.audio_player_key += 1
+            st.session_state.automation_data = [] # Clear Data
             st.rerun()
             
     with c3:
@@ -468,8 +469,8 @@ def render_tempo_controls():
     current_val = st.session_state.master_tempo
     
     with c_minus:
-        if st.button("➖ 0.1%", use_container_width=True):
-            new_v = max(0.5, current_val - 0.001)
+        if st.button("➖ 0.2%", use_container_width=True):
+            new_v = max(0.5, current_val - 0.002)
             st.session_state.master_tempo = new_v
             st.session_state.tempo_slider_widget = new_v # Force widget update
             st.rerun()
@@ -481,8 +482,8 @@ def render_tempo_controls():
             st.rerun()
             
     with c_plus:
-        if st.button("➕ 0.1%", use_container_width=True):
-            new_v = min(2.0, current_val + 0.001)
+        if st.button("➕ 0.2%", use_container_width=True):
+            new_v = min(2.0, current_val + 0.002)
             st.session_state.master_tempo = new_v
             st.session_state.tempo_slider_widget = new_v # Force widget update
             st.rerun()
